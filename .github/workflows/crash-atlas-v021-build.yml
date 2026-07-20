@@ -1,0 +1,82 @@
+name: Build Sinfar Crash Atlas v0.2.1
+
+on:
+  push:
+    branches:
+      - build/crash-atlas-v0.2.0
+    paths:
+      - '.github/workflows/crash-atlas-v021-build.yml'
+      - 'ci/source.part.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out build branch
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Reconstruct source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem -Path ci -Filter 'source.part.*' | Sort-Object Name
+          if ($parts.Count -ne 8) {
+            throw "Expected 8 source chunks; found $($parts.Count)."
+          }
+          $builder = [System.Text.StringBuilder]::new()
+          foreach ($part in $parts) {
+            [void]$builder.Append([System.IO.File]::ReadAllText($part.FullName).Trim())
+          }
+          $bytes = [Convert]::FromBase64String($builder.ToString())
+          [System.IO.File]::WriteAllBytes("SinfarCrashAtlas-v0.2.1-source.zip", $bytes)
+          Expand-Archive -Path "SinfarCrashAtlas-v0.2.1-source.zip" -DestinationPath "source" -Force
+
+      - name: Restore
+        shell: pwsh
+        working-directory: source
+        run: dotnet restore SinfarCrashAtlas.sln --locked-mode
+
+      - name: Build
+        shell: pwsh
+        working-directory: source
+        run: dotnet build SinfarCrashAtlas.sln -c Release --no-restore
+
+      - name: Test
+        shell: pwsh
+        working-directory: source
+        run: dotnet test SinfarCrashAtlas.sln -c Release --no-build --no-restore
+
+      - name: Publish self-contained Windows pilot
+        shell: pwsh
+        working-directory: source
+        run: |
+          dotnet publish src/SinfarCrashAtlas.App/SinfarCrashAtlas.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o ../publish
+          Get-FileHash ../publish/SinfarCrashAtlas.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  SinfarCrashAtlas.exe" } |
+            Set-Content ../publish/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload pilot binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: SinfarCrashAtlas-v0.2.1-win-x64
+          path: publish
+          if-no-files-found: error
+          retention-days: 7
