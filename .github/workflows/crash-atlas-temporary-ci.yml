@@ -142,6 +142,39 @@ jobs:
           Get-Content ..\diagnostics\test.txt
           exit $code
 
+      - name: Stop after test failure
+        if: steps.tests.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Tests failed. See CrashAtlas-Gate-Diagnostics.'
+
+      - name: Publish Windows x64
+        id: publish
+        continue-on-error: true
+        shell: pwsh
+        working-directory: source
+        run: |
+          $arguments = @(
+            'publish',
+            'src/SinfarCrashAtlas.App/SinfarCrashAtlas.App.csproj',
+            '-c', 'Release',
+            '-r', 'win-x64',
+            '--self-contained', 'true',
+            '-p:PublishSingleFile=true',
+            '-p:IncludeNativeLibrariesForSelfExtract=true',
+            '-p:PublishTrimmed=false',
+            '-p:DebugType=None',
+            '-p:DebugSymbols=false',
+            '-o', '../publish'
+          )
+          & dotnet @arguments 2>&1 | Tee-Object ../diagnostics/publish.txt
+          $code = $LASTEXITCODE
+          if ($code -eq 0) {
+            Get-FileHash ../publish/SinfarCrashAtlas.exe -Algorithm SHA256 |
+              ForEach-Object { "$($_.Hash.ToLowerInvariant())  SinfarCrashAtlas.exe" } |
+              Set-Content ../publish/SHA256SUMS.txt -Encoding ascii
+          }
+          exit $code
+
       - name: Upload gate diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -151,29 +184,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Stop after test failure
-        if: steps.tests.outcome == 'failure'
+      - name: Stop after publish failure
+        if: steps.publish.outcome == 'failure'
         shell: pwsh
-        run: throw 'Tests failed. See CrashAtlas-Gate-Diagnostics.'
-
-      - name: Publish Windows x64
-        shell: pwsh
-        working-directory: source
-        run: |
-          dotnet publish src/SinfarCrashAtlas.App/SinfarCrashAtlas.App.csproj `
-            -c Release `
-            -r win-x64 `
-            --self-contained true `
-            --no-restore `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:PublishTrimmed=false `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
-            -o ../publish
-          Get-FileHash ../publish/SinfarCrashAtlas.exe -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  SinfarCrashAtlas.exe" } |
-            Set-Content ../publish/SHA256SUMS.txt -Encoding ascii
+        run: throw 'Windows publication failed. See CrashAtlas-Gate-Diagnostics.'
 
       - uses: actions/upload-artifact@v4
         with:
