@@ -90,12 +90,12 @@ jobs:
             exit 1
           }
 
-      - name: Upload reconstruction diagnostics
-        if: always()
+      - name: Upload reconstructed source
+        if: steps.reconstruct.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: CrashAtlas-Reconstruction-Diagnostics
-          path: diagnostics
+          name: CrashAtlas-Reconstructed-Source
+          path: source.tar.xz
           if-no-files-found: error
           retention-days: 7
 
@@ -109,8 +109,29 @@ jobs:
         run: dotnet restore SinfarCrashAtlas.sln
 
       - name: Build
+        id: compile
+        continue-on-error: true
+        shell: pwsh
         working-directory: source
-        run: dotnet build SinfarCrashAtlas.sln -c Release --no-restore
+        run: |
+          cmd /c "dotnet build SinfarCrashAtlas.sln -c Release --no-restore > ..\diagnostics\build.txt 2>&1"
+          $code = $LASTEXITCODE
+          Get-Content ..\diagnostics\build.txt
+          exit $code
+
+      - name: Upload gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrashAtlas-Gate-Diagnostics
+          path: diagnostics
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop after build failure
+        if: steps.compile.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Compilation failed. See CrashAtlas-Gate-Diagnostics.'
 
       - name: Test
         working-directory: source
