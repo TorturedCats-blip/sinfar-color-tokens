@@ -1,0 +1,52 @@
+name: Build Sinfar Crash Atlas v0.2.1 Small Chunks
+
+on:
+  push:
+    branches:
+      - build/crash-atlas-v0.2.0
+    paths:
+      - '.github/workflows/crash-atlas-v021-build-small.yml'
+      - 'ci/source.small.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Reconstruct source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem -Path ci -Filter 'source.small.*' | Sort-Object Name
+          if ($parts.Count -ne 13) { throw "Expected 13 chunks; found $($parts.Count)." }
+          $builder = [System.Text.StringBuilder]::new()
+          foreach ($part in $parts) { [void]$builder.Append([IO.File]::ReadAllText($part.FullName).Trim()) }
+          [IO.File]::WriteAllBytes('SinfarCrashAtlas-v0.2.1-source.zip',[Convert]::FromBase64String($builder.ToString()))
+          Expand-Archive 'SinfarCrashAtlas-v0.2.1-source.zip' 'source' -Force
+      - name: Restore
+        working-directory: source
+        run: dotnet restore SinfarCrashAtlas.sln --locked-mode
+      - name: Build
+        working-directory: source
+        run: dotnet build SinfarCrashAtlas.sln -c Release --no-restore
+      - name: Test
+        working-directory: source
+        run: dotnet test SinfarCrashAtlas.sln -c Release --no-build --no-restore
+      - name: Publish
+        shell: pwsh
+        working-directory: source
+        run: |
+          dotnet publish src/SinfarCrashAtlas.App/SinfarCrashAtlas.App.csproj -c Release -r win-x64 --self-contained true --no-restore -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o ../publish
+          Get-FileHash ../publish/SinfarCrashAtlas.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  SinfarCrashAtlas.exe" } | Set-Content ../publish/SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SinfarCrashAtlas-v0.2.1-win-x64
+          path: publish
+          if-no-files-found: error
+          retention-days: 7
