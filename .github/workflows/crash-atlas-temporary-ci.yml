@@ -26,51 +26,71 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Reconstruct source archive
+        id: reconstruct
+        continue-on-error: true
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $parts = @(Get-ChildItem -Path ci -Filter 'v030full.part.*' | Sort-Object Name)
-          Write-Host "Found $($parts.Count) source chunks:"
-          foreach ($part in $parts) {
-            Write-Host "  $($part.Name) — $($part.Length) bytes"
-          }
-          if ($parts.Count -ne 12) {
-            throw "Expected 12 source chunks; found $($parts.Count)."
-          }
-
-          $builder = [System.Text.StringBuilder]::new()
-          foreach ($part in $parts) {
-            $chunk = [IO.File]::ReadAllText($part.FullName).Trim()
-            Write-Host "Appending $($part.Name): $($chunk.Length) characters"
-            [void]$builder.Append($chunk)
-          }
-
-          Write-Host "Combined Base64 length: $($builder.Length)"
+          New-Item -ItemType Directory -Path diagnostics -Force | Out-Null
           try {
+            $ErrorActionPreference = 'Stop'
+            $parts = @(Get-ChildItem -Path ci -Filter 'v030full.part.*' | Sort-Object Name)
+            "Found $($parts.Count) source chunks:" | Tee-Object diagnostics/reconstruct.txt
+            foreach ($part in $parts) {
+              "  $($part.Name) — $($part.Length) bytes" | Tee-Object diagnostics/reconstruct.txt -Append
+            }
+            if ($parts.Count -ne 12) {
+              throw "Expected 12 source chunks; found $($parts.Count)."
+            }
+
+            $builder = [System.Text.StringBuilder]::new()
+            foreach ($part in $parts) {
+              $chunk = [IO.File]::ReadAllText($part.FullName).Trim()
+              "Appending $($part.Name): $($chunk.Length) characters" | Tee-Object diagnostics/reconstruct.txt -Append
+              [void]$builder.Append($chunk)
+            }
+
+            "Combined Base64 length: $($builder.Length)" | Tee-Object diagnostics/reconstruct.txt -Append
             $archiveBytes = [Convert]::FromBase64String($builder.ToString())
+            [IO.File]::WriteAllBytes('source.tar.xz', $archiveBytes)
+            $archiveHash = (Get-FileHash 'source.tar.xz' -Algorithm SHA256).Hash
+            "Decoded archive size: $($archiveBytes.Length) bytes" | Tee-Object diagnostics/reconstruct.txt -Append
+            "Decoded archive SHA-256: $archiveHash" | Tee-Object diagnostics/reconstruct.txt -Append
+
+            New-Item -ItemType Directory -Path source -Force | Out-Null
+            $listing = & tar -tf source.tar.xz 2>&1
+            $listing | Select-Object -First 20 | Tee-Object diagnostics/reconstruct.txt -Append
+            if ($LASTEXITCODE -ne 0) {
+              throw "Archive listing failed with exit code $LASTEXITCODE."
+            }
+            & tar -xf source.tar.xz -C source
+            if ($LASTEXITCODE -ne 0) {
+              throw "Archive extraction failed with exit code $LASTEXITCODE."
+            }
+
+            if (-not (Test-Path 'source/SinfarCrashAtlas.sln')) {
+              throw 'Source extraction completed but SinfarCrashAtlas.sln is missing.'
+            }
+            'Reconstruction completed successfully.' | Tee-Object diagnostics/reconstruct.txt -Append
           }
           catch {
-            throw "Base64 reconstruction failed: $($_.Exception.Message)"
+            "ERROR: $($_.Exception.Message)" | Tee-Object diagnostics/reconstruct.txt -Append
+            $_ | Out-String | Tee-Object diagnostics/reconstruct.txt -Append
+            exit 1
           }
 
-          [IO.File]::WriteAllBytes('source.tar.xz', $archiveBytes)
-          $archiveHash = (Get-FileHash 'source.tar.xz' -Algorithm SHA256).Hash
-          Write-Host "Decoded archive size: $($archiveBytes.Length) bytes"
-          Write-Host "Decoded archive SHA-256: $archiveHash"
+      - name: Upload reconstruction diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrashAtlas-Reconstruction-Diagnostics
+          path: diagnostics
+          if-no-files-found: error
+          retention-days: 7
 
-          New-Item -ItemType Directory -Path source -Force | Out-Null
-          & tar -tf source.tar.xz | Select-Object -First 20
-          if ($LASTEXITCODE -ne 0) {
-            throw "Archive listing failed with exit code $LASTEXITCODE."
-          }
-          & tar -xf source.tar.xz -C source
-          if ($LASTEXITCODE -ne 0) {
-            throw "Archive extraction failed with exit code $LASTEXITCODE."
-          }
-
-          if (-not (Test-Path 'source/SinfarCrashAtlas.sln')) {
-            throw 'Source extraction completed but SinfarCrashAtlas.sln is missing.'
-          }
+      - name: Stop after reconstruction failure
+        if: steps.reconstruct.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Source reconstruction failed. See the diagnostic artifact.'
 
       - name: Restore
         working-directory: source
