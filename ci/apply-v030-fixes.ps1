@@ -4,12 +4,30 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$programPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.App/Program.cs'
-if (-not (Test-Path $programPath)) {
-    throw "Program.cs was not found at $programPath"
+
+function Read-NormalizedText([string]$Path) {
+    if (-not (Test-Path $Path)) {
+        throw "Required source file was not found: $Path"
+    }
+    return [IO.File]::ReadAllText($Path).Replace("`r`n", "`n")
 }
 
-$content = [IO.File]::ReadAllText($programPath).Replace("`r`n", "`n")
+function Replace-RequiredText(
+    [string]$Content,
+    [string]$OldText,
+    [string]$NewText,
+    [string]$Description
+) {
+    $oldNormalized = $OldText.Replace("`r`n", "`n")
+    $newNormalized = $NewText.Replace("`r`n", "`n")
+    if (-not $Content.Contains($oldNormalized)) {
+        throw "Expected source block was not found for: $Description"
+    }
+    return $Content.Replace($oldNormalized, $newNormalized)
+}
+
+$programPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.App/Program.cs'
+$program = Read-NormalizedText $programPath
 
 $oldCaptureBlock = @'
             capture.CrashAtlasElevated = IsRunningAsAdministrator();
@@ -22,7 +40,6 @@ $oldCaptureBlock = @'
             capture.WerConfigurationRestored = dumpScope?.Restore() ?? !minidumpRequested;
             _pendingWerRecovery = OperatingSystem.IsWindows() && WerLocalDumpScope.HasPendingRecovery(DataRoot);
 '@
-$oldCaptureBlock = $oldCaptureBlock.Replace("`r`n", "`n")
 
 $newCaptureBlock = @'
             capture.CrashAtlasElevated = IsRunningAsAdministrator();
@@ -46,12 +63,8 @@ $newCaptureBlock = @'
                 _pendingWerRecovery = false;
             }
 '@
-$newCaptureBlock = $newCaptureBlock.Replace("`r`n", "`n")
 
-if (-not $content.Contains($oldCaptureBlock)) {
-    throw 'Expected WER capture block was not found; refusing an unsafe patch.'
-}
-$content = $content.Replace($oldCaptureBlock, $newCaptureBlock)
+$program = Replace-RequiredText $program $oldCaptureBlock $newCaptureBlock 'Windows WER capture guard'
 
 $oldAdministratorMethod = @'
     [SupportedOSPlatform("windows")]
@@ -59,7 +72,6 @@ $oldAdministratorMethod = @'
     {
         try
 '@
-$oldAdministratorMethod = $oldAdministratorMethod.Replace("`r`n", "`n")
 
 $newAdministratorMethod = @'
     private static bool IsRunningAsAdministrator()
@@ -71,12 +83,33 @@ $newAdministratorMethod = @'
 
         try
 '@
-$newAdministratorMethod = $newAdministratorMethod.Replace("`r`n", "`n")
 
-if (-not $content.Contains($oldAdministratorMethod)) {
-    throw 'Expected administrator helper declaration was not found; refusing an unsafe patch.'
-}
-$content = $content.Replace($oldAdministratorMethod, $newAdministratorMethod)
+$program = Replace-RequiredText $program $oldAdministratorMethod $newAdministratorMethod 'administrator platform guard'
+[IO.File]::WriteAllText($programPath, $program, [Text.UTF8Encoding]::new($false))
 
-[IO.File]::WriteAllText($programPath, $content, [Text.UTF8Encoding]::new($false))
-Write-Host "Applied Crash Atlas v0.3.0 platform-analysis fixes to $programPath"
+$launcherPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.App/SinfarLauncherDiscovery.cs'
+$launcher = Read-NormalizedText $launcherPath
+$launcher = Replace-RequiredText \
+    $launcher \
+    'isEe ? "SinfarXEE / NWN:EE 81.8193.16" : "SinfarX / NWN Diamond 1.69"' \
+    'isEe ? "SinfarXEE / Neverwinter Nights: Enhanced Edition 81.8193.16" : "SinfarX / NWN Diamond 1.69"' \
+    'Enhanced Edition launcher profile name'
+[IO.File]::WriteAllText($launcherPath, $launcher, [Text.UTF8Encoding]::new($false))
+
+$repositoryPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.Reporting/SqliteReportRepository.cs'
+$repository = Read-NormalizedText $repositoryPath
+$oldConnectionOptions = @'
+            DataSource = fullPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared
+'@
+$newConnectionOptions = @'
+            DataSource = fullPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared,
+            Pooling = false
+'@
+$repository = Replace-RequiredText $repository $oldConnectionOptions $newConnectionOptions 'SQLite connection pool lifetime'
+[IO.File]::WriteAllText($repositoryPath, $repository, [Text.UTF8Encoding]::new($false))
+
+Write-Host 'Applied Crash Atlas v0.3.0 compile and test fixes.'
