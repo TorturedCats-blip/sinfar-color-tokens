@@ -89,11 +89,7 @@ $program = Replace-RequiredText $program $oldAdministratorMethod $newAdministrat
 
 $launcherPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.App/SinfarLauncherDiscovery.cs'
 $launcher = Read-NormalizedText $launcherPath
-$launcher = Replace-RequiredText \
-    $launcher \
-    'isEe ? "SinfarXEE / NWN:EE 81.8193.16" : "SinfarX / NWN Diamond 1.69"' \
-    'isEe ? "SinfarXEE / Neverwinter Nights: Enhanced Edition 81.8193.16" : "SinfarX / NWN Diamond 1.69"' \
-    'Enhanced Edition launcher profile name'
+$launcher = Replace-RequiredText $launcher 'isEe ? "SinfarXEE / NWN:EE 81.8193.16" : "SinfarX / NWN Diamond 1.69"' 'isEe ? "SinfarXEE / Neverwinter Nights: Enhanced Edition 81.8193.16" : "SinfarX / NWN Diamond 1.69"' 'Enhanced Edition launcher profile name'
 [IO.File]::WriteAllText($launcherPath, $launcher, [Text.UTF8Encoding]::new($false))
 
 $repositoryPath = Join-Path $SourceRoot 'src/SinfarCrashAtlas.Reporting/SqliteReportRepository.cs'
