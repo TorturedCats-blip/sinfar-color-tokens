@@ -1,0 +1,71 @@
+name: Build Sinfar Crash Atlas v0.3.0 Bundle
+
+on:
+  push:
+    branches:
+      - build/crash-atlas-v0.2.0
+    paths:
+      - '.github/workflows/crash-atlas-v030-bundle.yml'
+      - 'ci/v030.bundle.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Reconstruct source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem -Path ci -Filter 'v030.bundle.*' | Sort-Object Name
+          if ($parts.Count -ne 5) { throw "Expected 5 source chunks; found $($parts.Count)." }
+          $builder = [System.Text.StringBuilder]::new()
+          foreach ($part in $parts) { [void]$builder.Append([IO.File]::ReadAllText($part.FullName).Trim()) }
+          [IO.File]::WriteAllBytes('source.zip', [Convert]::FromBase64String($builder.ToString()))
+          Expand-Archive -Path 'source.zip' -DestinationPath 'source' -Force
+
+      - name: Restore
+        working-directory: source
+        run: dotnet restore SinfarCrashAtlas.sln
+
+      - name: Build
+        working-directory: source
+        run: dotnet build SinfarCrashAtlas.sln -c Release --no-restore
+
+      - name: Test
+        working-directory: source
+        run: dotnet test SinfarCrashAtlas.sln -c Release --no-build --no-restore
+
+      - name: Publish Windows x64
+        shell: pwsh
+        working-directory: source
+        run: |
+          dotnet publish src/SinfarCrashAtlas.App/SinfarCrashAtlas.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishTrimmed=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o ../publish
+          Get-FileHash ../publish/SinfarCrashAtlas.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  SinfarCrashAtlas.exe" } |
+            Set-Content ../publish/SHA256SUMS.txt -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SinfarCrashAtlas-v0.3.0-win-x64
+          path: publish
+          if-no-files-found: error
+          retention-days: 7
