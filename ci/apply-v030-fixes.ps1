@@ -108,4 +108,9 @@ $newConnectionOptions = @'
 $repository = Replace-RequiredText $repository $oldConnectionOptions $newConnectionOptions 'SQLite connection pool lifetime'
 [IO.File]::WriteAllText($repositoryPath, $repository, [Text.UTF8Encoding]::new($false))
 
+$repositoryTestsPath = Join-Path $SourceRoot 'tests/SinfarCrashAtlas.Tests/SqliteReportRepositoryTests.cs'
+$repositoryTests = Read-NormalizedText $repositoryTestsPath
+$repositoryTests = Replace-RequiredText $repositoryTests 'new SqliteConnection($"Data Source={databasePath}")' 'new SqliteConnection($"Data Source={databasePath};Pooling=False")' 'legacy SQLite migration test connection lifetime'
+[IO.File]::WriteAllText($repositoryTestsPath, $repositoryTests, [Text.UTF8Encoding]::new($false))
+
 Write-Host 'Applied Crash Atlas v0.3.0 compile and test fixes.'
