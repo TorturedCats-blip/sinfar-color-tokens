@@ -126,6 +126,22 @@ jobs:
           Get-Content ..\diagnostics\build.txt
           exit $code
 
+      - name: Stop after build failure
+        if: steps.compile.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Compilation failed. See CrashAtlas-Gate-Diagnostics.'
+
+      - name: Test
+        id: tests
+        continue-on-error: true
+        shell: pwsh
+        working-directory: source
+        run: |
+          cmd /c "dotnet test SinfarCrashAtlas.sln -c Release --no-build --no-restore > ..\diagnostics\test.txt 2>&1"
+          $code = $LASTEXITCODE
+          Get-Content ..\diagnostics\test.txt
+          exit $code
+
       - name: Upload gate diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -135,14 +151,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Stop after build failure
-        if: steps.compile.outcome == 'failure'
+      - name: Stop after test failure
+        if: steps.tests.outcome == 'failure'
         shell: pwsh
-        run: throw 'Compilation failed. See CrashAtlas-Gate-Diagnostics.'
-
-      - name: Test
-        working-directory: source
-        run: dotnet test SinfarCrashAtlas.sln -c Release --no-build --no-restore
+        run: throw 'Tests failed. See CrashAtlas-Gate-Diagnostics.'
 
       - name: Publish Windows x64
         shell: pwsh
