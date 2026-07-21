@@ -9,7 +9,7 @@ if (-not (Test-Path $programPath)) {
     throw "Program.cs was not found at $programPath"
 }
 
-$content = [IO.File]::ReadAllText($programPath)
+$content = [IO.File]::ReadAllText($programPath).Replace("`r`n", "`n")
 
 $oldCaptureBlock = @'
             capture.CrashAtlasElevated = IsRunningAsAdministrator();
@@ -22,6 +22,7 @@ $oldCaptureBlock = @'
             capture.WerConfigurationRestored = dumpScope?.Restore() ?? !minidumpRequested;
             _pendingWerRecovery = OperatingSystem.IsWindows() && WerLocalDumpScope.HasPendingRecovery(DataRoot);
 '@
+$oldCaptureBlock = $oldCaptureBlock.Replace("`r`n", "`n")
 
 $newCaptureBlock = @'
             capture.CrashAtlasElevated = IsRunningAsAdministrator();
@@ -45,6 +46,7 @@ $newCaptureBlock = @'
                 _pendingWerRecovery = false;
             }
 '@
+$newCaptureBlock = $newCaptureBlock.Replace("`r`n", "`n")
 
 if (-not $content.Contains($oldCaptureBlock)) {
     throw 'Expected WER capture block was not found; refusing an unsafe patch.'
@@ -57,6 +59,7 @@ $oldAdministratorMethod = @'
     {
         try
 '@
+$oldAdministratorMethod = $oldAdministratorMethod.Replace("`r`n", "`n")
 
 $newAdministratorMethod = @'
     private static bool IsRunningAsAdministrator()
@@ -68,6 +71,7 @@ $newAdministratorMethod = @'
 
         try
 '@
+$newAdministratorMethod = $newAdministratorMethod.Replace("`r`n", "`n")
 
 if (-not $content.Contains($oldAdministratorMethod)) {
     throw 'Expected administrator helper declaration was not found; refusing an unsafe patch.'
