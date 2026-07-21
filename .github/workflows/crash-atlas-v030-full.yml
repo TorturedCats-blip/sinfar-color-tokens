@@ -1,6 +1,6 @@
 name: Build Sinfar Crash Atlas v0.3.0 Full
 
-# Temporary branch workflow retained only to trigger the default-branch PR gate. Diagnostic retry 2.
+# Temporary branch workflow retained only to trigger the default-branch PR gate. Ordered reconstruction retry 3.
 on:
   push:
     branches:
