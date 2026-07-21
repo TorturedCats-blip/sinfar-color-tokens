@@ -33,13 +33,25 @@ jobs:
           New-Item -ItemType Directory -Path diagnostics -Force | Out-Null
           try {
             $ErrorActionPreference = 'Stop'
-            $parts = @(Get-ChildItem -Path ci -Filter 'v030full.part.*' | Sort-Object Name)
-            "Found $($parts.Count) source chunks:" | Tee-Object diagnostics/reconstruct.txt
+            $chunkNames = @(
+              'v030full.part.00',
+              'v030full.part.01',
+              'v030full.part.02',
+              'v030full.part.03',
+              'v030full.part.04',
+              'v030full.part.05a',
+              'v030full.part.05b',
+              'v030full.part.06',
+              'v030full.part.07',
+              'v030full.part.08',
+              'v030full.part.09',
+              'v030full.part.10',
+              'v030full.part.11'
+            )
+            $parts = @($chunkNames | ForEach-Object { Get-Item (Join-Path 'ci' $_) })
+            "Using $($parts.Count) ordered source chunks:" | Tee-Object diagnostics/reconstruct.txt
             foreach ($part in $parts) {
               "  $($part.Name) — $($part.Length) bytes" | Tee-Object diagnostics/reconstruct.txt -Append
-            }
-            if ($parts.Count -ne 12) {
-              throw "Expected 12 source chunks; found $($parts.Count)."
             }
 
             $builder = [System.Text.StringBuilder]::new()
